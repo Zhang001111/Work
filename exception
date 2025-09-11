@@ -1,0 +1,8 @@
+Exception in thread "main" java.nio.file.InvalidPathException: Illegal char <:> at index 33: image_upload_result_2025-09-11 13:01:33.csv
+	at sun.nio.fs.WindowsPathParser.normalize(WindowsPathParser.java:182)
+	at sun.nio.fs.WindowsPathParser.parse(WindowsPathParser.java:153)
+	at sun.nio.fs.WindowsPathParser.parse(WindowsPathParser.java:77)
+	at sun.nio.fs.WindowsPath.parse(WindowsPath.java:94)
+	at sun.nio.fs.WindowsFileSystem.getPath(WindowsFileSystem.java:255)
+	at sun.nio.fs.AbstractPath.resolve(AbstractPath.java:53)
+	at jp.co.softbank.ppf.ppe.batch.main.ImageMaskingTool.main(ImageMaskingTool.java:40)
