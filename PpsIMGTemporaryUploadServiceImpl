@@ -1,0 +1,168 @@
+package jp.co.softbank.ppf.ppe.batch.service;
+
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.alibaba.fastjson.JSONObject;
+
+import jp.co.softbank.ppf.ppe.batch.common.Const;
+import jp.co.softbank.ppf.ppe.batch.common.ConstantParameterManager;
+import jp.co.softbank.ppf.ppe.batch.common.EncryptUtil;
+import jp.co.softbank.ppf.ppe.batch.common.ImageResizeUtils;
+import jp.co.softbank.ppf.ppe.batch.common.MaskingImageUtil;
+import jp.co.softbank.ppf.ppe.batch.dto.PhotoRecordDto;
+
+public class PpsIMGTemporaryUploadServiceImpl {
+
+    private static final Logger logger = LoggerFactory.getLogger(PpsIMGTemporaryUploadServiceImpl.class);
+
+    /** メッセージ引数(画像データなし) */
+    private static final String MESSAGE_IMAGEFILE_ABNORMAL = "画像データを入力してください。";
+    /** メッセージ引数(画像名称なし) */
+    private static final String MESSAGE_IMAGENAME_ABNORMAL = "画像名称を入力してください。";
+
+    public static void maskingImgTemporaryUpload(PhotoRecordDto photoRecord) throws Exception {
+
+        // ファイル画像
+        String fileImg = "";
+        if (StringUtils.isNotBlank(photoRecord.getBase64Result())) {
+            fileImg = photoRecord.getBase64Result();
+        } else {
+            throw new Exception(MESSAGE_IMAGEFILE_ABNORMAL);
+        }
+        // ファイル名
+        String fileName = "";
+        if (StringUtils.isNotBlank(photoRecord.getPhotoName())) {
+            fileName = photoRecord.getPhotoName();
+        } else {
+            throw new Exception(MESSAGE_IMAGENAME_ABNORMAL);
+        }
+        String imgFormat = "";
+        String[] fileNameArray = fileName.split("\\.");
+        if (fileNameArray != null && fileNameArray.length > 1) {
+            imgFormat = fileNameArray[fileNameArray.length - 1].toLowerCase();
+            if (StringUtils.equals("jpg", imgFormat) || StringUtils.equals("jpeg", imgFormat)
+                    || StringUtils.equals("jpe", imgFormat) || StringUtils.equals("jfif", imgFormat)) {
+                imgFormat = "jpeg";
+            }
+        }
+        HashMap<String, Object> maskingImageApiParams = new HashMap<>();
+        String prefix = "data:image/" + imgFormat + ";base64,";
+        fileImg = prefix + fileImg;
+        maskingImageApiParams.put("fileImg", fileImg);
+
+        // マスキングApi呼び出し
+        JSONObject resultJson = MaskingImageUtil.callMaskingImageApi(maskingImageApiParams);
+        int resultCode = resultJson.getIntValue("resultCode");
+        if (resultCode == HttpURLConnection.HTTP_OK) {
+
+            fileImg = resultJson.getString("image");
+        } else {
+            // throw new Exception("マスキング処理失敗");
+            // fileImg = resultJson.getString("image");// test
+        }
+
+        String thumbnail = ImageResizeUtils.ppsResizeImage(fileImg, 10000, 380, 500, imgFormat);
+
+        String timeStamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        String image_temporary_upload_result_csv_path = ConstantParameterManager
+                .getConstParam("IMAGE_TEMPORARY_UPLOAD_RESULT_CSV_PATH");
+        Path csvFile = Paths.get(image_temporary_upload_result_csv_path)
+                .resolve("image_upload_result_" + timeStamp + ".csv");
+
+        boolean originalUploadResult = shopFileTemporaryUpload(fileImg, photoRecord.getPhotoPath());
+        writeUploadResultCsv(csvFile, photoRecord.getPhotoPath(), originalUploadResult);
+
+        boolean thumbnailUploadResult = shopFileTemporaryUpload(thumbnail, photoRecord.getThumbnailPath());
+        writeUploadResultCsv(csvFile, photoRecord.getThumbnailPath(), thumbnailUploadResult);
+
+    }
+
+    /**
+     * ショップファイル一時保存
+     * 
+     * @param image 画像
+     * @return filePath
+     */
+    private static boolean shopFileTemporaryUpload(String image, String imagePath) {
+
+        String ap_server_path = ConstantParameterManager.getConstParam("AP_SERVER_PATH");
+
+        Path target = Paths.get(ap_server_path).resolve(imagePath);
+
+        final byte[] encrypted;
+        try {
+            encrypted = EncryptUtil.encrypt(image.getBytes(), Const.URI.URI_SALT);
+        } catch (IllegalArgumentException e) {
+            logger.warn("画像暗号化失敗: {}", e.getMessage(), e);
+            return false;
+        }
+
+        try {
+
+            Path dir = target.getParent();
+            if (dir != null) {
+                Files.createDirectories(dir);
+            }
+
+            Path temp = Files.createTempFile(dir, "tmp-", ".tmp");
+            try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.WRITE);
+                    BufferedOutputStream out = new BufferedOutputStream(Channels.newOutputStream(channel))) {
+
+                out.write(encrypted);
+                out.flush();
+
+                channel.force(true);
+            } catch (IOException e) {
+
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (IOException ex) {
+                }
+                logger.warn("一時ファイル書き込み失敗: {}", e.getMessage(), e);
+                return false;
+            }
+
+            try {
+                Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException amnse) {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return true;
+
+        } catch (IOException e) {
+            logger.warn("画像ファイル書き込み異常 {}: {}", target, e.getMessage(), e);
+            return false;
+        }
+    }
+
+    private static void writeUploadResultCsv(Path csvFile, String imagePath, boolean uploadResult) {
+        try {
+            Files.createDirectories(csvFile.getParent());
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            String status = uploadResult ? "SUCCESS" : "FAILURE";
+            String record = timestamp + "," + imagePath + "," + status + System.lineSeparator();
+
+            Files.write(csvFile, record.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException e) {
+            logger.warn("CSVファイル書き込み失敗：{}", e.getMessage(), e);
+        }
+    }
+
+}
