@@ -1,0 +1,177 @@
+package jp.co.softbank.ppf.ppe.batch.common;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.UUID;
+
+import javax.xml.bind.DatatypeConverter;
+
+//import org.apache.logging.log4j.LogManager;
+//import org.apache.logging.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.alibaba.fastjson.JSONObject;
+
+public class MaskingImageUtil {
+    /** ロガーのインスタンス生成 */
+    private static final Logger logger = LoggerFactory.getLogger(MaskingImageUtil.class);
+
+    /**
+     * 画像マスキングApiを呼び出し
+     * 
+     * @param fileData 画像Base64エンコード
+     * @return
+     */
+    public static JSONObject callMaskingImageApi(HashMap<String, Object> maskingImageApiParams) throws Exception {
+        logger.info("callMaskingImageApi:開始。");
+        HttpURLConnection conn = null;
+        // マスキング処理結果
+        JSONObject jsonResult = new JSONObject();
+        // String imageString = fileData.replace("data:image/jpeg;base64,", "");
+        // ランダムでUUIDを取得する
+        UUID uuid = UUID.randomUUID();
+        String strUUID = uuid.toString();
+        BufferedReader reader = null;
+        try {
+            /*
+             * // OZONE検証環境URL URL url = new
+             * URL(ConstantParameterManager.getConstParam("OZONE_AI_API_URL_" +
+             * environment)); // OZONE接続用Basic認証情報 String basicAc =
+             * ConstantParameterManager.getConstParam("OZONE_AI_API_BASIC_ACCOUNT_" +
+             * environment); String basicPw =
+             * ConstantParameterManager.getConstParam("OZONE_AI_API_BASIC_CIPHERCD_" +
+             * environment);
+             */
+            String imageString = (String) maskingImageApiParams.get("fileImg");
+            String prefixString = imageString.substring(0, imageString.indexOf(",") + 1);
+            imageString = imageString.substring(imageString.indexOf(",") + 1);
+            // KIWI検証環境URL
+            URL url = new URL(ConstantParameterManager.getConstParam("kiwi_ai_api_url"));
+            // KIWI接続用Basic認証情報
+            String basicAc = ConstantParameterManager.getConstParam("kiwi_ai_api_basic_account");
+            String basicPw = ConstantParameterManager.getConstParam("kiwi_ai_api_basic_ciphercd");
+            String auth = basicAc + ":" + basicPw;
+            String encodeAuth = DatatypeConverter.printBase64Binary(auth.getBytes());
+            String authHeaderValue = "Basic " + encodeAuth;
+            // http connection を作成する
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(30 * 1000);
+            conn.setDoInput(true);
+            conn.setUseCaches(false);
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Authorization", authHeaderValue);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Accept", "application/json");
+            // Request-Id UUID
+            conn.setRequestProperty("X-External-Request-Id", strUUID);
+            conn.setDoOutput(true);
+            logger.info("callMaskingImageApi: X-External-Request-Id:" + strUUID);
+
+            // マスキングパラメータ設定
+            JSONObject jsonParameters = new JSONObject();
+            jsonParameters.put("confidence_threshold", 0.3);
+            jsonParameters.put("mosaic_ratio", 0.9);
+            // マスキングしたいデータ設定
+            JSONObject jsonPayload = new JSONObject();
+            jsonPayload.put("parameters", jsonParameters);
+            jsonPayload.put("sample", imageString);
+            // 送信を行う
+            try (OutputStream os = conn.getOutputStream()) {
+                byte[] input = jsonPayload.toString().getBytes(StandardCharsets.UTF_8);
+                os.write(input, 0, input.length);
+            }
+            // httpステータスコードの判断
+            InputStream inputStream;
+            String maskingImage;
+            int responseCode = conn.getResponseCode();
+            logger.info("callMaskingImageApi: responseCode:" + responseCode);
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                // レスポンスを取得
+                inputStream = conn.getInputStream();
+                reader = new BufferedReader(new InputStreamReader(inputStream));
+                StringBuilder response = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    response.append(line);
+                }
+                reader.close();
+                // レスポンスを解析
+                JSONObject jsonResponse = JSONObject.parseObject(response.toString());
+                JSONObject data = jsonResponse.getJSONObject("data");
+                JSONObject attributes = data.getJSONObject("attributes");
+                JSONObject result = attributes.getJSONObject("result");
+                // マスキング画像を取得
+                maskingImage = result.getString("image");
+                // 処理結果を設定
+                jsonResult.put("resultCode", responseCode);
+                jsonResult.put("image", prefixString + maskingImage);
+                logger.info("callMaskingImageApi:正常終了。");
+            } else {
+                // エラーレスポンスを取得
+                inputStream = conn.getErrorStream();
+                if (null != inputStream) {
+                    BufferedReader errorReader = new BufferedReader(new InputStreamReader(inputStream));
+                    StringBuilder errorResponse = new StringBuilder();
+                    String line;
+                    while ((line = errorReader.readLine()) != null) {
+                        errorResponse.append(line);
+                    }
+                    errorReader.close();
+                    // レスポンスを解析
+                    logger.warn("errorResponse:" + errorResponse.toString());
+                    JSONObject jsonErrorResponse = JSONObject.parseObject(errorResponse.toString());
+
+                    if (jsonErrorResponse.containsKey("error")) {
+                        JSONObject error = jsonErrorResponse.getJSONObject("error");
+                        String code = error.containsKey("code") ? error.getString("code") : "";
+                        String message = error.containsKey("message") ? error.getString("message") : "";
+                        String description = error.containsKey("description") ? error.getString("description") : "";
+                        // 処理結果を設定
+                        jsonResult.put("resultCode", responseCode);
+                        jsonResult.put("errorCode", code);
+                        jsonResult.put("message", message);
+                        jsonResult.put("description", description);
+                        // ログを出力する
+                        logger.warn("callMaskingImageApi:処理失敗しました。 responseCode:" + responseCode + ", errorCode:" + code
+                                + ", message:" + message + ", description:" + description);
+                    } else {
+                        // ログを出力する
+                        logger.warn("callMaskingImageApi:処理失敗しました。");
+                    }
+                } else {
+                    // ログを出力する
+                    int noStreamResponseCode = conn.getResponseCode();
+                    String noStreamResponseMessage = conn.getResponseMessage();
+                    jsonResult.put("resultCode", noStreamResponseCode);
+                    jsonResult.put("message", noStreamResponseMessage);
+                    logger.warn("callMaskingImageApi:処理失敗しました。  responseCode:" + noStreamResponseCode + ", message:"
+                            + noStreamResponseMessage);
+                }
+            }
+        } catch (Exception e) {
+            // ログを出力する
+            logger.warn("callMaskingImageApi:マスキング処理異常終了。", e);
+            // logger.warn(e.toString());
+            // 処理結果を設定
+            jsonResult.put("resultCode", 999);
+            jsonResult.put("message", "マスキング処理異常終了");
+        } finally {
+            if (reader != null) {
+                reader.close();
+            }
+        }
+        // http connectionを切断する
+        if (conn != null) {
+            conn.disconnect();
+        }
+        // 処理結果を戻す
+        return jsonResult;
+    }
+}
