@@ -1,5 +1,9 @@
 package jp.co.softbank.ppf.ppe.batch.main;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 
@@ -9,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import com.google.gson.Gson;
 
 import jp.co.softbank.ppf.ppe.batch.common.Const;
+import jp.co.softbank.ppf.ppe.batch.common.ConstantParameterManager;
 import jp.co.softbank.ppf.ppe.batch.common.Messages;
 import jp.co.softbank.ppf.ppe.batch.dto.PhotoRecordDto;
 import jp.co.softbank.ppf.ppe.batch.service.ImageDecryptCompressService;
@@ -27,6 +32,13 @@ public class ImageMaskingTool {
     public static void main(String[] args) {
 
         logger.info(Messages.getMessage(Messages.MSG004, new Gson().toJson(args)));
+
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        String image_temporary_upload_result_csv_path = ConstantParameterManager
+                .getConstParam("IMAGE_TEMPORARY_UPLOAD_RESULT_CSV_PATH");
+        Path csvFile = Paths.get(image_temporary_upload_result_csv_path)
+                .resolve("image_upload_result_" + timestamp + ".csv");
+
         int resultCd = Const.RESULTCD.NORMAL;
         if (args == null || args.length < 2) {
             logger.error("パラメータ不足");
@@ -48,13 +60,13 @@ public class ImageMaskingTool {
 
         int compressSuccessCount = 0;
         int compressFailCount = 0;
-        int uploadSuccessCount = 0;
-        int uploadFailCount = 0;
+
         if (photoRecords == null) {
             System.exit(resultCd);
         }
         for (PhotoRecordDto photoRecord : photoRecords) {
             String photoPath = photoRecord.getPhotoPath();
+            String thumbnailPath = photoRecord.getThumbnailPath();
             String base64Result = null;
             try {
                 logger.info("画像復号圧縮処理開始:{}", photoPath);
@@ -71,19 +83,17 @@ public class ImageMaskingTool {
             }
 
             try {
-                logger.info("画像マスキング一時アップロード開始:{}", photoPath);
-                PpsIMGTemporaryUploadServiceImpl.maskingImgTemporaryUpload(photoRecord);
-                logger.info("画像マスキング一時アップロード正常終了:{}", photoPath);
-                uploadSuccessCount++;
+                logger.info("画像マスキング一時アップロード開始:元画像{}、サムネイル{}", photoPath, thumbnailPath);
+                PpsIMGTemporaryUploadServiceImpl.maskingImgTemporaryUpload(photoRecord, csvFile);
+                logger.info("画像マスキング一時アップロード正常終了:、元画像{}、サムネイル{}", photoPath, thumbnailPath);
             } catch (Exception e) {
-                logger.error("画像マスキング一時アップロード異常終了，パス:{}，異常:{}", photoPath, e.getMessage(), e);
-                uploadFailCount++;
+                logger.error("画像マスキング一時アップロード異常終了,異常:{}", e.getMessage(), e);
                 continue;
             }
         }
 
         logger.info("画像復号圧縮: 成功:{}件, 失敗:{}件", compressSuccessCount, compressFailCount);
-        logger.info("画像マスキング一時アップロード: 成功:{}件, 失敗:{}件", uploadSuccessCount, uploadFailCount);
+        logger.info("ファイル一時アップロード結果csv:{}", csvFile.toString());
         System.exit(resultCd);
 
     }
