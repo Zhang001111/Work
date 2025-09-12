@@ -1,0 +1,14 @@
+private static List<PhotoRecordDto> queryTableNoParams(Connection conn, String sql) throws SQLException {
+    List<PhotoRecordDto> result = new ArrayList<>();
+    try (PreparedStatement ps = conn.prepareStatement(sql);
+         ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+            PhotoRecordDto pr = new PhotoRecordDto();
+            pr.setPhotoName(rs.getString("photo_name"));
+            pr.setPhotoPath(rs.getString("photo_path"));
+            pr.setThumbnailPath(rs.getString("thumbnail_path"));
+            result.add(pr);
+        }
+    }
+    return result;
+}
