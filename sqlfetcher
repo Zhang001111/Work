@@ -1,0 +1,125 @@
+package jp.co.softbank.ppf.ppe.batch.service;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Properties;
+
+import jp.co.softbank.ppf.ppe.batch.common.ConstantParameterManager;
+import jp.co.softbank.ppf.ppe.batch.dto.PhotoRecordDto;
+
+public class ImagePathFetcherService {
+
+    public static List<PhotoRecordDto> imagePathFetcher(List<String> shopClassificationCodeList, String roundFlag)
+            throws Exception {
+        List<PhotoRecordDto> allRecords = new ArrayList<>();
+        String url = ConstantParameterManager.getConstParam("DB_CONNECT_URL");
+        Properties props = new Properties();
+        props.setProperty("user", ConstantParameterManager.getConstParam("DB_CONNECT_USER"));
+        props.setProperty("password", ConstantParameterManager.getConstParam("DB_CONNECT_PASS"));
+        if (roundFlag.equals("1")) {
+            String inClause = String.join(",", Collections.nCopies(shopClassificationCodeList.size(), "?"));
+            // sql1 sql2 :pps_wf_cleanliness_item_detail
+            String sql1 = "SELECT overall_photo_name AS photo_name,overall_photo_path AS photo_path,overall_photo_thumb_path AS thumbnail_path FROM  pps_wf_cleanliness_item_detail WHERE shop_classification_code IN ("
+                    + inClause
+                    + ") AND implementation_id = 21 AND overall_photo_name is not null AND overall_photo_path is not null AND overall_photo_thumb_path is not null";
+
+            String sql2 = "SELECT target_photo_name AS photo_name,target_photo_path AS photo_path,target_photo_thumb_path AS thumbnail_path FROM  pps_wf_cleanliness_item_detail WHERE shop_classification_code IN ("
+                    + inClause
+                    + ") AND implementation_id = 21 AND target_photo_name is not null AND target_photo_path is not null AND target_photo_thumb_path is not null";
+
+            // String sql3 = "SELECT file_name AS photo_name,file_path AS
+            // photo_path,file_thumb_path AS thumbnail_path FROM
+            // pps_wf_cleanliness_attfile_manage WHERE shop_classification_code IN ("
+            // + inClause + ") AND implementation_id = xxx ";
+
+            // String sql4 = "SELECT objection_photo_name AS photo_name,objection_photo_path
+            // AS photo_path,objection_photo_thumb_path AS thumbnail_path FROM
+            // pps_wf_cleanliness_objection_allegation WHERE shop_classification_code IN ("
+            // + inClause + ") AND implementation_id = xxx ";
+
+            try (Connection conn = DriverManager.getConnection(url, props)) {
+
+                allRecords.addAll(queryTable(conn, sql1, shopClassificationCodeList));
+                allRecords.addAll(queryTable(conn, sql2, shopClassificationCodeList));
+                // allRecords.addAll(queryTable(conn, sql3, shopClassificationCodeList));
+                // allRecords.addAll(queryTable(conn, sql4, shopClassificationCodeList));
+
+            }
+        }
+        if (roundFlag.equals("2")) {
+            String inClause = String.join(",", Collections.nCopies(shopClassificationCodeList.size(), "?"));
+            // sql1 sql2 : pps_wf_cleanliness_item_detail
+            String sql1 = "SELECT overall_photo_name AS photo_name,overall_photo_path AS photo_path,overall_photo_thumb_path AS thumbnail_path FROM  pps_wf_cleanliness_item_detail "
+                    + "WHERE (( implementation_id =17 AND shop_classification_code NOT IN (" + inClause
+                    + ")) OR implementation_id = 40) AND overall_photo_name is not null AND overall_photo_path is not null AND overall_photo_thumb_path is not null";
+
+            String sql2 = "SELECT target_photo_name AS photo_name,target_photo_path AS photo_path,target_photo_thumb_path AS thumbnail_path FROM  pps_wf_cleanliness_item_detail "
+                    + "WHERE (( implementation_id =17 AND shop_classification_code NOT IN (" + inClause
+                    + ")) OR implementation_id = 40) AND target_photo_name is not null AND target_photo_path is not null AND target_photo_thumb_path is not null";
+            
+            // sql3 pps_wf_cleanliness_attfile_manage
+            String sql3 ="SELECT file_name AS photo_name,file_path AS photo_path,file_thumb_path AS thumbnail_path FROM  pps_wf_cleanliness_attfile_manage "
+                    + "WHERE (( implementation_id =17 AND shop_classification_code NOT IN (" + inClause
+                    + ")) OR implementation_id = 40) AND file_name is not null AND file_path is not null AND file_thumb_path is not null";
+            //sql4 pps_wf_cleanliness_objection_allegation
+            String sql4 = "SELECT objection_photo_name AS photo_name,objection_photo_path AS photo_path,objection_photo_thumb_path AS thumbnail_path FROM  pps_wf_cleanliness_objection_allegation "
+                    + "WHERE (( implementation_id =17 AND shop_classification_code NOT IN (" + inClause
+                    + ")) OR implementation_id = 40) AND objection_photo_name is not null AND objection_photo_path is not null AND objection_photo_thumb_path is not null";
+
+            try (Connection conn = DriverManager.getConnection(url, props)) {
+
+                allRecords.addAll(queryTable(conn, sql1, shopClassificationCodeList));
+                allRecords.addAll(queryTable(conn, sql2, shopClassificationCodeList));
+                allRecords.addAll(queryTable(conn, sql3, shopClassificationCodeList));
+                allRecords.addAll(queryTable(conn, sql4, shopClassificationCodeList));
+
+            }
+        }
+        if (roundFlag.equals("3")) {
+            // sql1 sql2 : pps_wf_cleanliness_item_detail
+            String sql1 = "SELECT overall_photo_name AS photo_name,overall_photo_path AS photo_path,overall_photo_thumb_path AS thumbnail_path FROM  pps_wf_cleanliness_item_detail "
+                    + "WHERE  implementation_id = 41 AND updated_at<= TIMESTAMP '2025-10-14 23:59:59' AND overall_photo_name is not null AND overall_photo_path is not null AND overall_photo_thumb_path is not null";
+
+            String sql2 = "SELECT target_photo_name AS photo_name,target_photo_path AS photo_path,target_photo_thumb_path AS thumbnail_path FROM  pps_wf_cleanliness_item_detail "
+                    + "WHERE  implementation_id = 41 AND updated_at<= TIMESTAMP '2025-10-14 23:59:59' AND target_photo_name is not null AND target_photo_path is not null AND target_photo_thumb_path is not null";
+
+            // sql3 pps_wf_cleanliness_attfile_manage
+            String sql3 = "SELECT file_name AS photo_name,file_path AS photo_path,file_thumb_path AS thumbnail_path FROM  pps_wf_cleanliness_attfile_manage "
+                    + "WHERE  implementation_id = 41 AND updated_at<= TIMESTAMP '2025-10-14 23:59:59' AND file_name is not null AND file_path is not null AND file_thumb_path is not null";
+            //sql4 pps_wf_cleanliness_objection_allegation
+            String sql4 = "SELECT objection_photo_name AS photo_name,objection_photo_path AS photo_path,objection_photo_thumb_path AS thumbnail_path FROM  pps_wf_cleanliness_objection_allegation "
+                    + "WHERE  implementation_id = 41 AND updated_at<= TIMESTAMP '2025-10-14 23:59:59' AND objection_photo_name is not null AND objection_photo_thumb_path is not null AND target_photo_thumb_path is not null";
+
+        
+        }
+
+        return allRecords;
+    }
+
+    private static List<PhotoRecordDto> queryTable(Connection conn, String sql, List<String> shopClassificationCodeList)
+            throws SQLException {
+        List<PhotoRecordDto> result = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (int i = 0; i < shopClassificationCodeList.size(); i++) {
+                ps.setString(i + 1, shopClassificationCodeList.get(i));
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    PhotoRecordDto pr = new PhotoRecordDto();
+                    pr.setPhotoName(rs.getString("photo_name"));
+                    pr.setPhotoPath(rs.getString("photo_path"));
+                    pr.setThumbnailPath(rs.getString("thumbnail_path"));
+                    result.add(pr);
+                }
+            }
+        }
+        return result;
+    }
+
+}
